@@ -1,20 +1,12 @@
--- nv_morsmutual/server.lua
--- Parked/unparked is determined ONLY by presence in testersz.user_vehicles:
---   - Parked  = row EXISTS in user_vehicles
---   - Unparked= row REMOVED from user_vehicles
--- No parked column. No new table.
---
--- We keep removed rows in memory while out so we can insert them back when "parked".
-
 local RESOURCE = GetCurrentResourceName()
 
 local function dbg(msg)
   print(('[%s] %s'):format(RESOURCE, tostring(msg)))
 end
 
--- ----------------------------
--- MySQL wrapper (oxmysql/mysql-async/ghmattimysql)
--- ----------------------------
+
+
+
 local function isOx() return (Config.MySQL or ''):lower() == 'oxmysql' end
 local function isMyAsync() return (Config.MySQL or ''):lower() == 'mysql-async' end
 local function isGH() return (Config.MySQL or ''):lower() == 'ghmattimysql' end
@@ -51,9 +43,9 @@ local function execute(query, params)
   end
 end
 
--- ----------------------------
--- Identifier
--- ----------------------------
+
+
+
 local function getIdentifier(src)
   local t = (Config.IdentifierType or 'discord'):lower()
 
@@ -65,7 +57,7 @@ local function getIdentifier(src)
     end
   end
 
-  -- fallback to license if discord missing
+  
   if t ~= 'license' then
     for _, id in ipairs(GetPlayerIdentifiers(src)) do
       if id:find('license:', 1, true) == 1 then
@@ -76,11 +68,11 @@ local function getIdentifier(src)
   return nil
 end
 
--- ----------------------------
--- Cooldowns / locks
--- ----------------------------
-local cooldowns = {}        -- [ownerId] = os.time()+seconds
-local activeDeliveries = {} -- [ownerId] = plate
+
+
+
+local cooldowns = {}        
+local activeDeliveries = {} 
 
 local function canUse(ownerId)
   local now = os.time()
@@ -90,11 +82,11 @@ local function canUse(ownerId)
   return true, 0
 end
 
--- ----------------------------
--- "Out" memory store (NOT a DB table)
--- We store the removed DB row here so we can insert it back when parked.
--- outVehicles[ownerId][plate] = { row=<db row>, state='delivering'|'out', since=os.time() }
--- ----------------------------
+
+
+
+
+
 local outVehicles = {}
 
 local function ownerMap(ownerId)
@@ -110,7 +102,7 @@ end
 local function setOut(ownerId, plate, row, state)
   local m = ownerMap(ownerId)
   m[plate] = {
-    row = row, -- full db row
+    row = row, 
     state = state or 'out',
     since = os.time()
   }
@@ -122,9 +114,9 @@ local function clearOut(ownerId, plate)
   m[plate] = nil
 end
 
--- ----------------------------
--- JSON helpers
--- ----------------------------
+
+
+
 local function toJsonString(v)
   if v == nil then return nil end
   if type(v) == 'string' then return v end
@@ -137,14 +129,14 @@ local function upperPlate(p)
   return tostring(p or ''):upper()
 end
 
--- ----------------------------
--- Queries (ONLY parked vehicles exist in table)
--- ----------------------------
+
+
+
 local function getVehiclesForOwner(ownerId)
   local t = Config.DB_TABLE
   local ownerCol = Config.DB_OWNER_COLUMN
 
-  -- Parked vehicles ONLY = what remains in the table
+  
   local rows = fetchAll(([[
     SELECT id, plate, model, x, y, z, h, color1, color2, pearlescent, wheelColor, wheelType, windowTint, mods, extras
     FROM %s
@@ -169,8 +161,8 @@ local function deleteVehicleRow(ownerId, plate)
 end
 
 local function upsertVehicleRow(ownerId, row)
-  -- Inserts the car back into user_vehicles (parked).
-  -- Uses ON DUPLICATE KEY because you have UNIQUE(discordid,plate)
+  
+  
   local t = Config.DB_TABLE
 
   local discordid   = row.discordid or ownerId
@@ -209,11 +201,11 @@ local function upsertVehicleRow(ownerId, row)
   })
 end
 
--- ----------------------------
--- Events
--- ----------------------------
 
--- List vehicles: ONLY parked ones (because unparked are removed from table)
+
+
+
+
 RegisterNetEvent('nv_morsmutual:sv_list', function()
   local src = source
   local ownerId = getIdentifier(src)
@@ -225,7 +217,7 @@ RegisterNetEvent('nv_morsmutual:sv_list', function()
   local ok, remaining = canUse(ownerId)
   local vehicles = getVehiclesForOwner(ownerId)
 
-  -- Optional: make UI show them as parked (if your UI expects this field)
+  
   for _, v in ipairs(vehicles) do
     v.parked = 1
   end
@@ -238,11 +230,11 @@ RegisterNetEvent('nv_morsmutual:sv_list', function()
   })
 end)
 
--- Request delivery:
--- 1) Fetch row from DB (parked)
--- 2) Delete from DB immediately (now it's "unparked")
--- 3) Store row in memory so we can insert it back later
--- 4) Send props to client to spawn and drive it
+
+
+
+
+
 RegisterNetEvent('nv_morsmutual:sv_requestDelivery', function(plate, spawn)
   local src = source
   plate = upperPlate(plate)
@@ -265,7 +257,7 @@ RegisterNetEvent('nv_morsmutual:sv_requestDelivery', function(plate, spawn)
     return
   end
 
-  -- Already out?
+  
   if isOut(ownerId, plate) then
     TriggerClientEvent('nv_morsmutual:cl_notify', src, 'That vehicle is already unparked / out.')
     return
@@ -273,23 +265,23 @@ RegisterNetEvent('nv_morsmutual:sv_requestDelivery', function(plate, spawn)
 
   local row = getVehicleByPlate(ownerId, plate)
   if not row then
-    -- If it's not in DB, then by your rules it's unparked/out.
+    
     TriggerClientEvent('nv_morsmutual:cl_notify', src, 'That vehicle is currently unparked / out (not in garage).')
     return
   end
 
-  -- Validate spawn
+  
   local sx, sy, sz, sh = tonumber(spawn and spawn.x), tonumber(spawn and spawn.y), tonumber(spawn and spawn.z), tonumber(spawn and spawn.h)
   if not sx or not sy or not sz or not sh then
     TriggerClientEvent('nv_morsmutual:cl_notify', src, 'Invalid spawn point.')
     return
   end
 
-  -- Lock + cooldown
+  
   activeDeliveries[ownerId] = plate
   cooldowns[ownerId] = os.time() + tonumber(Config.CooldownSeconds or 60)
 
-  -- Remove from garage table immediately (UNPARKED)
+  
   local okDel, errDel = pcall(function()
     deleteVehicleRow(ownerId, plate)
   end)
@@ -300,7 +292,7 @@ RegisterNetEvent('nv_morsmutual:sv_requestDelivery', function(plate, spawn)
     return
   end
 
-  -- Store row in memory so we can reinsert when parked again
+  
   setOut(ownerId, plate, row, 'delivering')
 
   TriggerClientEvent('nv_morsmutual:cl_deliveryApproved', src, {
@@ -321,9 +313,9 @@ RegisterNetEvent('nv_morsmutual:sv_requestDelivery', function(plate, spawn)
   })
 end)
 
--- Delivery done:
--- If failed, we INSERT it back (so it becomes parked again).
--- If success, it stays OUT (still removed from DB) until you call sv_markParked.
+
+
+
 RegisterNetEvent('nv_morsmutual:sv_deliveryDone', function(plate, deliveredOk)
   local src = source
   local ownerId = getIdentifier(src)
@@ -335,7 +327,7 @@ RegisterNetEvent('nv_morsmutual:sv_deliveryDone', function(plate, deliveredOk)
 
   local entry = outVehicles[ownerId] and outVehicles[ownerId][plate]
   if not entry or not entry.row then
-    -- nothing to restore
+    
     return
   end
 
@@ -343,7 +335,7 @@ RegisterNetEvent('nv_morsmutual:sv_deliveryDone', function(plate, deliveredOk)
     entry.state = 'out'
     dbg(("Delivery success -> %s/%s remains OUT (row removed from DB)"):format(ownerId, plate))
   else
-    -- restore into DB (park it again)
+    
     dbg(("Delivery failed -> restoring %s/%s back into DB"):format(ownerId, plate))
     pcall(function()
       upsertVehicleRow(ownerId, entry.row)
@@ -352,11 +344,11 @@ RegisterNetEvent('nv_morsmutual:sv_deliveryDone', function(plate, deliveredOk)
   end
 end)
 
--- Mark parked:
--- This should be called when the player stores the vehicle.
--- We INSERT it back into user_vehicles (PARKED).
--- You can call with just plate if server memory exists,
--- or include props/coords if server restarted and memory is empty.
+
+
+
+
+
 RegisterNetEvent('nv_morsmutual:sv_markParked', function(plate, props, coords, heading)
   local src = source
   local ownerId = getIdentifier(src)
@@ -368,7 +360,7 @@ RegisterNetEvent('nv_morsmutual:sv_markParked', function(plate, props, coords, h
   local entry = outVehicles[ownerId] and outVehicles[ownerId][plate]
   local row = entry and entry.row or nil
 
-  -- Fallback: if server memory is gone (restart), require props to reinsert
+  
   if not row then
     if type(props) ~= 'table' then
       TriggerClientEvent('nv_morsmutual:cl_notify', src, 'Cannot park: missing stored data (server restart). Send vehicle properties.')
@@ -390,7 +382,7 @@ RegisterNetEvent('nv_morsmutual:sv_markParked', function(plate, props, coords, h
     }
   end
 
-  -- Update coords on insert if provided
+  
   if type(coords) == 'table' then
     row.x = tonumber(coords.x) or row.x
     row.y = tonumber(coords.y) or row.y
@@ -414,7 +406,7 @@ RegisterNetEvent('nv_morsmutual:sv_markParked', function(plate, props, coords, h
   clearOut(ownerId, plate)
 end)
 
--- Optional: allow cancel to restore vehicle to DB
+
 RegisterNetEvent('nv_morsmutual:sv_cancelOut', function(plate)
   local src = source
   local ownerId = getIdentifier(src)

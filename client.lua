@@ -1,13 +1,3 @@
--- Az-MoresDelivery / nv_morsmutual
--- client.lua (FULL FIX)
--- ✅ Legendary Autosport-style NUI support (vehicle cards can use spawnName/previewUrl)
--- ✅ Accepts DB model as spawnName string OR hash (signed/unsigned) OR numeric-string hash
--- ✅ Converts DB model -> spawnName (for docs.fivem.net previews) + pretty label name
--- ✅ AI Driver fuel = 100% and Delivered fuel = 100%
--- ✅ Repairs/cleans + forces driveable after delivery
--- ✅ Blips cleaned when valet is deleted
--- ✅ UI images: row.previewUrl + row.spawnName guaranteed where possible
-
 local RESOURCE = GetCurrentResourceName()
 
 local function dbg(msg)
@@ -20,13 +10,12 @@ local function notify(msg)
   DrawNotification(false, false)
 end
 
---==========================================================
--- CONFIG
---==========================================================
+
+
+
 Config = Config or {}
 
-Config.Command  = Config.Command  or 'mors'
-
+Config.Command   = Config.Command  or 'mors'
 
 Config.CallSeconds = Config.CallSeconds or 9
 
@@ -39,7 +28,7 @@ Config.DriveSpeed    = Config.DriveSpeed or 20.0
 Config.DrivingStyle  = Config.DrivingStyle or 786603
 Config.StopDistance  = Config.StopDistance or 8.0
 
-Config.Theme = Config.Theme or { accent = '#2fb7ff' } -- optional, used if you still send setTheme
+Config.Theme = Config.Theme or { accent = '#2fb7ff' }
 
 Config.OperatorVoice = Config.OperatorVoice or {
   enable = true,
@@ -49,9 +38,19 @@ Config.OperatorVoice = Config.OperatorVoice or {
   delayMs = 2300,
 }
 
---==========================================================
--- Hash normalize (negative -> unsigned) so model hashes work
---==========================================================
+
+Config.RoadSearchAttempts = Config.RoadSearchAttempts or 40
+Config.RoadNodeType       = Config.RoadNodeType       or 1     
+Config.RoadNodeRadius     = Config.RoadNodeRadius     or 3.0
+
+Config.StuckSeconds       = Config.StuckSeconds       or 8     
+Config.StuckTeleportAfter = Config.StuckTeleportAfter or 3     
+Config.TeleportDistMin    = Config.TeleportDistMin    or 120.0
+Config.TeleportDistMax    = Config.TeleportDistMax    or 180.0
+
+
+
+
 local function normalizeHash(h)
   h = tonumber(h)
   if not h then return nil end
@@ -77,9 +76,9 @@ local function modelToHashNoLoad(model)
   return nil
 end
 
---==========================================================
--- spawnName inference
---==========================================================
+
+
+
 local function sanitizeSpawnName(s)
   if type(s) ~= 'string' then return nil end
   s = s:gsub("^%s+", ""):gsub("%s+$", "")
@@ -88,14 +87,11 @@ local function sanitizeSpawnName(s)
   return s:lower()
 end
 
--- spawnName = vehicle spawn name used by FiveM natives (e.g. "asbo")
--- IMPORTANT: if DB already stores spawn string, use it even if not in CD image (addon cars)
 local function modelToSpawnName(model)
   if model == nil then return nil end
 
   if type(model) == 'string' then
     local s = model:gsub("^%s+", ""):gsub("%s+$", "")
-    -- numeric-string? treat as hash below
     if tonumber(s) == nil then
       return sanitizeSpawnName(s)
     end
@@ -105,17 +101,16 @@ local function modelToSpawnName(model)
   if not hash then return nil end
   if not IsModelInCdimage(hash) then return nil end
 
-  local disp = GetDisplayNameFromVehicleModel(hash) -- usually "ASBO"
+  local disp = GetDisplayNameFromVehicleModel(hash) 
   if not disp or disp == '' then return nil end
   return string.lower(disp)
 end
 
--- pretty label = localized name (e.g. "Asbo"), fallback to display/spawn
 local function modelToPrettyName(model)
   local hash = modelToHashNoLoad(model)
   if not hash then return tostring(model) end
+
   if not IsModelInCdimage(hash) then
-    -- If it's a string spawnName but not a base game model, at least title-case-ish
     if type(model) == 'string' and tonumber(model) == nil then
       local s = sanitizeSpawnName(model)
       if s then
@@ -141,7 +136,6 @@ local function augmentVehicleRowForNui(row)
 
   local originalModel = row.model
 
-  -- Prefer explicit spawn fields first, then derive from model/hash
   local spawn =
       modelToSpawnName(row.spawnName) or
       modelToSpawnName(row.spawn) or
@@ -161,16 +155,14 @@ local function augmentVehicleRowForNui(row)
     row.previewUrl = ("https://docs.fivem.net/vehicles/%s.webp?v=1"):format(spawn)
   end
 
-  -- Keep model as nice display string for UI
   row.model = pretty
-
   if row.plate then row.plate = tostring(row.plate):upper() end
   return row
 end
 
---==========================================================
--- NUI open/close
---==========================================================
+
+
+
 local nuiOpen = false
 local deliveryActive = false
 
@@ -207,20 +199,22 @@ RegisterNUICallback('close', function(_, cb)
   cb(true)
 end)
 
---==========================================================
--- Commands (request list from server)
---==========================================================
+
+
+
 RegisterCommand(Config.Command, function()
-  dbg("Command /" .. Config.Command .. " -> request list")
+  dbg("Command /" .. tostring(Config.Command) .. " -> request list")
   if nuiOpen then return end
   TriggerServerEvent('nv_morsmutual:sv_list')
 end, false)
 
-RegisterCommand(Config.Command2, function()
-  dbg("Command /" .. Config.Command2 .. " -> request list")
-  if nuiOpen then return end
-  TriggerServerEvent('nv_morsmutual:sv_list')
-end, false)
+if Config.Command2 and tostring(Config.Command2) ~= '' then
+  RegisterCommand(Config.Command2, function()
+    dbg("Command /" .. tostring(Config.Command2) .. " -> request list")
+    if nuiOpen then return end
+    TriggerServerEvent('nv_morsmutual:sv_list')
+  end, false)
+end
 
 RegisterNetEvent('nv_morsmutual:cl_list', function(payload)
   dbg(("cl_list received: ok=%s cooldown=%s vehicles=%s"):format(
@@ -248,9 +242,9 @@ RegisterNetEvent('nv_morsmutual:cl_list', function(payload)
   openNui()
 end)
 
---==========================================================
--- PHONE AUDIO (stop/release so no infinite ringing)
---==========================================================
+
+
+
 local activeSoundIds = {}
 
 local function stopAllPhoneSounds()
@@ -292,9 +286,9 @@ local function playCallSequence(callMs)
   playFrontendSoundForMs('Hang_Up', 'Phone_SoundSet_Default', 350)
 end
 
---==========================================================
--- OPTIONAL OPERATOR VOICE (in-game speech system)
---==========================================================
+
+
+
 local function playOperatorVoice()
   if not (Config.OperatorVoice and Config.OperatorVoice.enable) then return end
 
@@ -308,9 +302,9 @@ local function playOperatorVoice()
   end)
 end
 
---==========================================================
--- Phone call animation
---==========================================================
+
+
+
 local function doPhoneCallAnimation(durationMs)
   local ped = PlayerPedId()
   ClearPedTasks(ped)
@@ -325,32 +319,75 @@ local function doPhoneCallAnimation(durationMs)
   ClearPedTasks(ped)
 end
 
---==========================================================
--- Spawn selection
---==========================================================
-local function getRandomSpawnAroundPlayer()
+
+
+
+local function snapToRoadNode(x, y, z)
+  local nodeType = tonumber(Config.RoadNodeType or 1)
+  local radius   = tonumber(Config.RoadNodeRadius or 3.0)
+
+  local found, pos, heading = GetClosestVehicleNodeWithHeading(x + 0.0, y + 0.0, z + 0.0, nodeType, radius, 0)
+  if found and pos then
+    return pos, (heading or 0.0)
+  end
+
+  local found2, pos2 = GetClosestVehicleNode(x + 0.0, y + 0.0, z + 0.0, nodeType, radius, 0)
+  if found2 and pos2 then
+    return pos2, 0.0
+  end
+
+  return nil, nil
+end
+
+local function getValidRoadSpawnAroundPlayer()
   local ped = PlayerPedId()
   local p = GetEntityCoords(ped)
 
   local minD = tonumber(Config.SpawnDistanceMin or 280.0)
   local maxD = tonumber(Config.SpawnDistanceMax or 520.0)
+  local attempts = tonumber(Config.RoadSearchAttempts or 40)
 
-  local ang = math.random() * math.pi * 2.0
-  local dist = minD + (math.random() * (maxD - minD))
+  for _ = 1, attempts do
+    local ang  = math.random() * math.pi * 2.0
+    local dist = minD + (math.random() * (maxD - minD))
 
-  local x = p.x + math.cos(ang) * dist
-  local y = p.y + math.sin(ang) * dist
+    local cx = p.x + math.cos(ang) * dist
+    local cy = p.y + math.sin(ang) * dist
+    local cz = p.z + 80.0
 
-  local found, z = GetGroundZFor_3dCoord(x, y, p.z + 80.0, false)
-  if not found then z = p.z end
+    local okGround, gz = GetGroundZFor_3dCoord(cx, cy, cz, false)
+    if okGround then cz = gz end
 
-  local h = GetHeadingFromVector_2d((p.x - x), (p.y - y))
-  return { x=x+0.0, y=y+0.0, z=(z+1.0)+0.0, h=h+0.0 }
+    local nodePos, nodeH = snapToRoadNode(cx, cy, cz)
+    if nodePos then
+      local d = #(vector3(nodePos.x, nodePos.y, nodePos.z) - p)
+      if d >= (minD * 0.65) then
+        return { x=nodePos.x+0.0, y=nodePos.y+0.0, z=(nodePos.z+1.0)+0.0, h=(nodeH or 0.0)+0.0 }
+      end
+    end
+  end
+
+  local nodePos, nodeH = snapToRoadNode(p.x, p.y, p.z)
+  if nodePos then
+    return { x=nodePos.x+0.0, y=nodePos.y+0.0, z=(nodePos.z+1.0)+0.0, h=(nodeH or 0.0)+0.0 }
+  end
+
+  return { x=p.x+0.0, y=p.y+0.0, z=(p.z+1.0)+0.0, h=GetEntityHeading(ped)+0.0 }
 end
 
---==========================================================
--- Blips
---==========================================================
+local function getPlayerRoadDestination()
+  local ped = PlayerPedId()
+  local p = GetEntityCoords(ped)
+  local pos, _h = snapToRoadNode(p.x, p.y, p.z)
+  if pos then
+    return vector3(pos.x, pos.y, pos.z)
+  end
+  return vector3(p.x, p.y, p.z)
+end
+
+
+
+
 local spawnBlip = nil
 local vehBlip   = nil
 
@@ -386,9 +423,9 @@ local function setVehBlip(veh)
   SetBlipRouteColour(vehBlip, 1)
 end
 
---==========================================================
--- Model loader (supports numeric-string + signed hash)
---==========================================================
+
+
+
 local function loadModel(model)
   local hash = modelToHashNoLoad(model)
   if not hash then return false end
@@ -411,9 +448,9 @@ local function loadModel(model)
   return hash
 end
 
---==========================================================
--- Helpers: JSON decode + extras normalize
---==========================================================
+
+
+
 local function decodeJsonMaybe(v)
   if v == nil then return nil end
   if type(v) == 'table' then return v end
@@ -445,13 +482,13 @@ local function normalizeExtras(extras)
   return nil
 end
 
---==========================================================
--- Fuel helpers (force 100%)
---==========================================================
+
+
+
 CreateThread(function()
   pcall(function()
     if not DecorIsRegisteredAsType("_FUEL_LEVEL", 1) then
-      DecorRegister("_FUEL_LEVEL", 1) -- 1=float
+      DecorRegister("_FUEL_LEVEL", 1) 
     end
   end)
 end)
@@ -494,17 +531,20 @@ local function setFuel100(veh)
   setFuelTo(veh, 100.0)
 end
 
---==========================================================
--- Apply FULL properties (ox_lib) + FORCE fuel 100
---==========================================================
+
+
+
 local function applyFullProps(veh, payload)
   if not DoesEntityExist(veh) then return end
+  if type(payload) ~= 'table' then return end
 
   local propsWrapper = payload.props or {}
   local mods = decodeJsonMaybe(propsWrapper.mods) or {}
 
   local final = mods
-  final.model = tonumber(payload.model) or final.model
+
+  
+  final.model = modelToHashNoLoad(payload.model) or final.model
   final.plate = payload.plate or propsWrapper.plate or final.plate
 
   final.color1 = propsWrapper.color1 or final.color1
@@ -526,9 +566,9 @@ local function applyFullProps(veh, payload)
   setFuel100(veh)
 end
 
---==========================================================
--- Force driveable
---==========================================================
+
+
+
 local function forceDriveable(veh, seconds)
   seconds = tonumber(seconds) or 5
   if not DoesEntityExist(veh) then return end
@@ -564,9 +604,9 @@ local function repairAndClean(veh)
   SetVehicleEngineOn(veh, true, true, false)
 end
 
---==========================================================
--- NUI -> request delivery
---==========================================================
+
+
+
 RegisterNUICallback('requestDelivery', function(data, cb)
   local plate = tostring(data and data.plate or ''):upper()
   dbg("NUI requestDelivery -> plate=" .. plate)
@@ -601,7 +641,8 @@ RegisterNUICallback('requestDelivery', function(data, cb)
     doPhoneCallAnimation(callMs)
     stopAllPhoneSounds()
 
-    local spawn = getRandomSpawnAroundPlayer()
+    
+    local spawn = getValidRoadSpawnAroundPlayer()
     setSpawnBlip(spawn)
 
     TriggerServerEvent('nv_morsmutual:sv_requestDelivery', plate, spawn)
@@ -610,48 +651,147 @@ RegisterNUICallback('requestDelivery', function(data, cb)
   cb({ ok=true })
 end)
 
---==========================================================
--- Delivery spawn + AI drive
---==========================================================
+
+
+
 local activeVeh = nil
 local activeDriver = nil
+local deliveredVeh = nil 
 
-local function clearDeliveryEntities()
-  if activeDriver and DoesEntityExist(activeDriver) then DeleteEntity(activeDriver) end
+local function safeDeleteEntity(ent)
+  if ent and DoesEntityExist(ent) then
+    SetEntityAsMissionEntity(ent, true, true)
+    DeleteEntity(ent)
+  end
+end
+
+local function clearDeliveryEntities(deleteVehicleToo)
+  if activeDriver then
+    safeDeleteEntity(activeDriver)
+  end
   activeDriver = nil
+
+  if deleteVehicleToo and activeVeh and DoesEntityExist(activeVeh) then
+    
+    if deliveredVeh ~= activeVeh then
+      safeDeleteEntity(activeVeh)
+    end
+  end
+
   activeVeh = nil
 end
 
 local function driveToPlayer(driver, veh)
-  local ped = PlayerPedId()
-  local p = GetEntityCoords(ped)
+  local dest = getPlayerRoadDestination()
+
+  ClearPedTasks(driver)
 
   TaskVehicleDriveToCoordLongrange(
     driver, veh,
-    p.x, p.y, p.z,
+    dest.x, dest.y, dest.z,
     tonumber(Config.DriveSpeed or 20.0),
     tonumber(Config.DrivingStyle or 786603),
     tonumber(Config.StopDistance or 8.0)
   )
+
+  pcall(function()
+    SetDriveTaskMaxCruiseSpeed(driver, tonumber(Config.DriveSpeed or 20.0))
+  end)
+end
+
+local function teleportVehicleCloserToPlayerRoad(veh)
+  local ped = PlayerPedId()
+  local p = GetEntityCoords(ped)
+
+  local minD = tonumber(Config.TeleportDistMin or 120.0)
+  local maxD = tonumber(Config.TeleportDistMax or 180.0)
+
+  for _ = 1, 12 do
+    local ang  = math.random() * math.pi * 2.0
+    local dist = minD + (math.random() * (maxD - minD))
+
+    local cx = p.x + math.cos(ang) * dist
+    local cy = p.y + math.sin(ang) * dist
+    local cz = p.z + 80.0
+
+    local okGround, gz = GetGroundZFor_3dCoord(cx, cy, cz, false)
+    if okGround then cz = gz end
+
+    local nodePos, nodeH = snapToRoadNode(cx, cy, cz)
+    if nodePos then
+      SetEntityCoordsNoOffset(veh, nodePos.x, nodePos.y, nodePos.z + 1.0, false, false, false)
+      SetEntityHeading(veh, nodeH or GetEntityHeading(veh))
+      SetVehicleOnGroundProperly(veh)
+      return true
+    end
+  end
+
+  local nodePos, nodeH = snapToRoadNode(p.x, p.y, p.z)
+  if nodePos then
+    SetEntityCoordsNoOffset(veh, nodePos.x, nodePos.y, nodePos.z + 1.0, false, false, false)
+    SetEntityHeading(veh, nodeH or GetEntityHeading(veh))
+    SetVehicleOnGroundProperly(veh)
+    return true
+  end
+
+  return false
 end
 
 local function monitorArrival(payload, driver, veh)
   CreateThread(function()
-    local timeout = GetGameTimer() + (6 * 60 * 1000)
-    local stopDist = tonumber(Config.StopDistance or 8.0)
+    local timeout   = GetGameTimer() + (6 * 60 * 1000)
+    local stopDist  = tonumber(Config.StopDistance or 8.0)
+    local stuckSecs = tonumber(Config.StuckSeconds or 8)
+    local tpAfter   = tonumber(Config.StuckTeleportAfter or 3)
+
+    local lastPos    = GetEntityCoords(veh)
+    local lastMoveAt = GetGameTimer()
+    local reroutes   = 0
 
     while deliveryActive and DoesEntityExist(veh) and DoesEntityExist(driver) do
       Wait(500)
 
+      if IsEntityDead(driver) or IsEntityDead(veh) then break end
+
       local ped = PlayerPedId()
-      local p = GetEntityCoords(ped)
-      local v = GetEntityCoords(veh)
+      local p   = GetEntityCoords(ped)
+      local v   = GetEntityCoords(veh)
       local dist = #(p - v)
 
-      if math.random(1, 8) == 1 then
+      
+      if math.random(1, 6) == 1 then
         driveToPlayer(driver, veh)
       end
 
+      
+      local moved = #(v - lastPos)
+      local speed = GetEntitySpeed(veh)
+
+      if moved > 2.0 then
+        lastPos = v
+        lastMoveAt = GetGameTimer()
+      end
+
+      local stuckFor = (GetGameTimer() - lastMoveAt) / 1000.0
+      if dist > (stopDist + 25.0) and speed < 1.0 and stuckFor >= stuckSecs then
+        reroutes = reroutes + 1
+        dbg(("AI stuck (%.1fs). Reroute #%d"):format(stuckFor, reroutes))
+
+        driveToPlayer(driver, veh)
+
+        
+        if reroutes >= tpAfter then
+          dbg("Teleport failsafe triggered (stuck). Moving valet closer to road node.")
+          teleportVehicleCloserToPlayerRoad(veh)
+          driveToPlayer(driver, veh)
+          reroutes = 0
+        end
+
+        lastMoveAt = GetGameTimer()
+        lastPos = GetEntityCoords(veh)
+      end
+
+      
       if dist <= (stopDist + 2.0) then
         TaskVehicleTempAction(driver, veh, 27, 1200)
         SetVehicleHandbrake(veh, true)
@@ -661,7 +801,7 @@ local function monitorArrival(payload, driver, veh)
         TaskLeaveVehicle(driver, veh, 256)
         Wait(1400)
 
-        if DoesEntityExist(driver) then DeleteEntity(driver) end
+        safeDeleteEntity(driver)
         activeDriver = nil
         removeBlips()
 
@@ -675,28 +815,36 @@ local function monitorArrival(payload, driver, veh)
         setFuel100(veh)
         forceDriveable(veh, 6)
 
+        deliveredVeh = veh
+        activeVeh = nil
+
         notify('Your vehicle has been delivered (repaired, cleaned, fuel 100%).')
         TriggerServerEvent('nv_morsmutual:sv_deliveryDone')
         deliveryActive = false
         return
       end
 
+      
       if GetGameTimer() > timeout then
         removeBlips()
         notify('Delivery timed out. Try again.')
         TriggerServerEvent('nv_morsmutual:sv_deliveryDone')
         deliveryActive = false
-        clearDeliveryEntities()
+        clearDeliveryEntities(true)
         return
       end
     end
 
+    
     removeBlips()
     TriggerServerEvent('nv_morsmutual:sv_deliveryDone')
     deliveryActive = false
-    clearDeliveryEntities()
+    clearDeliveryEntities(true)
   end)
 end
+
+
+
 
 RegisterNetEvent('nv_morsmutual:cl_deliveryApproved', function(payload)
   dbg("cl_deliveryApproved received")
@@ -707,6 +855,9 @@ RegisterNetEvent('nv_morsmutual:cl_deliveryApproved', function(payload)
     removeBlips()
     return
   end
+
+  
+  clearDeliveryEntities(true)
 
   local vehHash = loadModel(payload.model)
   if not vehHash then
@@ -726,7 +877,19 @@ RegisterNetEvent('nv_morsmutual:cl_deliveryApproved', function(payload)
     return
   end
 
+  
   local s = payload.spawn
+  do
+    local pos, h = snapToRoadNode(s.x or 0.0, s.y or 0.0, s.z or 0.0)
+    if not pos then
+      local fallback = getValidRoadSpawnAroundPlayer()
+      s = fallback
+    else
+      s = { x=pos.x+0.0, y=pos.y+0.0, z=(pos.z+1.0)+0.0, h=(h or s.h or 0.0)+0.0 }
+    end
+  end
+  payload.spawn = s
+
   local veh = CreateVehicle(vehHash, s.x, s.y, s.z, s.h, true, true)
   if not DoesEntityExist(veh) then
     notify('Failed to create vehicle.')
@@ -737,19 +900,31 @@ RegisterNetEvent('nv_morsmutual:cl_deliveryApproved', function(payload)
   end
 
   activeVeh = veh
+  SetEntityAsMissionEntity(veh, true, true)
 
+  
   applyFullProps(veh, payload)
   setFuel100(veh)
 
+  
   SetVehicleDoorsLocked(veh, 2)
-
   SetVehicleHandbrake(veh, false)
   SetVehicleUndriveable(veh, false)
   FreezeEntityPosition(veh, false)
   SetVehicleEngineOn(veh, true, true, false)
   SetVehicleOnGroundProperly(veh)
 
+  
   local driver = CreatePedInsideVehicle(veh, 26, driverHash, -1, true, false)
+  if not DoesEntityExist(driver) then
+    notify('Failed to create driver.')
+    deliveryActive = false
+    removeBlips()
+    safeDeleteEntity(veh)
+    TriggerServerEvent('nv_morsmutual:sv_deliveryDone')
+    return
+  end
+
   activeDriver = driver
   SetEntityAsMissionEntity(driver, true, true)
   SetBlockingOfNonTemporaryEvents(driver, true)
@@ -766,9 +941,9 @@ RegisterNetEvent('nv_morsmutual:cl_deliveryApproved', function(payload)
   notify('Mors Mutual: your vehicle is on the way.')
 end)
 
---==========================================================
--- ESC closes UI (client-side safety)
---==========================================================
+
+
+
 CreateThread(function()
   while true do
     Wait(0)
@@ -780,13 +955,14 @@ CreateThread(function()
   end
 end)
 
---==========================================================
--- Cleanup
---==========================================================
+
+
+
 AddEventHandler('onResourceStop', function(res)
   if res ~= RESOURCE then return end
   stopAllPhoneSounds()
   closeNuiHard("resource_stop")
   removeBlips()
-  clearDeliveryEntities()
+  deliveryActive = false
+  clearDeliveryEntities(true)
 end)

@@ -3,7 +3,7 @@ game 'gta5'
 
 author 'Azure(TheStoicBear)'
 description 'Mors Mutual-style vehicle delivery (AI drives your stored vehicle to you)'
-version '1.0.0'
+version '1.5.0'
 
 lua54 'yes'
 

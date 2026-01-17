@@ -31,7 +31,7 @@ Config.AutoMigrateParkedColumn = true
 --==========================================================
 -- Command to open the insurance UI
 Config.Command = 'mors'
-Config.Command2 = 'insurance'
+Config.Command2 = 'mors2'
 
 -- Cooldown per player (seconds)
 Config.CooldownSeconds = 60
