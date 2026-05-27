@@ -1,26 +1,12 @@
 # Az-MoresDelivery
 
-Mors Mutual-style vehicle delivery (AI drives your stored vehicle to you).
+This standalone resource has been merged into Az-Framework 2.0.
 
-**Resource:** `Az-MoresDelivery`
-**Author:** ChatGPT
-**fx_version:** `cerulean`
-**NUI page:** `html/index.html`
+Use `Az-Framework/modules/morsdelivery` through the main `Az-Framework` resource instead of installing this repository as a separate FiveM resource.
 
-## What it does
-Mors Mutual-style vehicle delivery (AI drives your stored vehicle to you).
+## Migration
 
-## Features
-- NUI UI included (`html/index.html`).
-- NPC ped interactions.
-- Map blips to guide players.
-
-## Commands
-_None_
-
-## Exports
-_None_
-
-## Dependencies
-- `ox_lib`
-- `oxmysql`
+1. Remove `ensure Az-MoresDelivery` from `server.cfg`.
+2. Make sure `ensure Az-Framework` starts after `oxmysql` and `ox_lib`.
+3. Update exports/events to use `exports['Az-Framework']` where applicable.
+4. Keep this repository as a migration notice only.
